@@ -229,7 +229,7 @@
     track.innerHTML = slides
       .map(
         (s) => `
-      <article class="slide-item" style="background-image:url('${s.src}')">
+      <article class="slide-item" style="background-image:url('${normalizeImageUrl(s.src)}')">
         <div class="slide-caption">${escapeHtml(s.caption || "")}</div>
       </article>`
       )
@@ -332,7 +332,7 @@
       wrap.innerHTML = products
         .map((p) => `
       <article class="card product-card">
-        <img src="${p.image}" alt="${escapeHtml(p.name)}" />
+        <img src="${normalizeImageUrl(p.image)}" alt="${escapeHtml(p.name)}" />
         <span class="badge">Product</span>
         <h3>${escapeHtml(p.name)}</h3>
         <p>${escapeHtml(p.description)}</p>
@@ -962,6 +962,23 @@ form.addEventListener("submit", (e) => {
       return parsed.searchParams.get("v") || "";
     } catch {
       return "";
+    }
+  }
+
+  function normalizeImageUrl(url) {
+    const value = String(url || "").trim();
+    if (!value) return value;
+
+    try {
+      const parsed = new URL(value);
+      if (parsed.hostname === "github.com" && parsed.pathname.includes("/blob/")) {
+        return value
+          .replace("https://github.com/", "https://raw.githubusercontent.com/")
+          .replace("/blob/", "/");
+      }
+      return value;
+    } catch {
+      return value;
     }
   }
 
