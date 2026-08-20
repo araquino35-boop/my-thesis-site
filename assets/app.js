@@ -143,15 +143,44 @@
 
   function write(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      firebase.database().ref(key).set(value).catch(() => {});
+    }
   }
 
   function seed() {
-    if (!localStorage.getItem(KEYS.products)) write(KEYS.products, defaults.products);
-    if (!localStorage.getItem(KEYS.services)) write(KEYS.services, defaults.services);
-    if (!localStorage.getItem(KEYS.projectEntries)) write(KEYS.projectEntries, defaults.projectEntries);
-    if (!localStorage.getItem(KEYS.slides)) write(KEYS.slides, defaults.slides);
-    if (!localStorage.getItem(KEYS.videos)) write(KEYS.videos, defaults.videos);
-    if (!localStorage.getItem(KEYS.ppts)) write(KEYS.ppts, defaults.ppts);
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      // Firebase is available: sync each key from the database.
+      // If the database node is empty (first-ever run), write the defaults.
+      // Otherwise pull the live value into localStorage so the first render is correct.
+      const db = firebase.database();
+      const pairs = [
+        [KEYS.products,       defaults.products],
+        [KEYS.services,       defaults.services],
+        [KEYS.projectEntries, defaults.projectEntries],
+        [KEYS.slides,         defaults.slides],
+        [KEYS.videos,         defaults.videos],
+        [KEYS.ppts,           defaults.ppts],
+      ];
+      pairs.forEach(([key, val]) => {
+        db.ref(key).once('value', (snap) => {
+          if (snap.exists()) {
+            localStorage.setItem(key, JSON.stringify(snap.val()));
+          } else {
+            db.ref(key).set(val).catch(() => {});
+            localStorage.setItem(key, JSON.stringify(val));
+          }
+        });
+      });
+    } else {
+      // No Firebase yet — fall back to localStorage seeding.
+      if (!localStorage.getItem(KEYS.products))       write(KEYS.products,       defaults.products);
+      if (!localStorage.getItem(KEYS.services))       write(KEYS.services,       defaults.services);
+      if (!localStorage.getItem(KEYS.projectEntries)) write(KEYS.projectEntries, defaults.projectEntries);
+      if (!localStorage.getItem(KEYS.slides))         write(KEYS.slides,         defaults.slides);
+      if (!localStorage.getItem(KEYS.videos))         write(KEYS.videos,         defaults.videos);
+      if (!localStorage.getItem(KEYS.ppts))           write(KEYS.ppts,           defaults.ppts);
+    }
   }
 
   function setFooter() {
@@ -233,185 +262,273 @@
   }
 
   function initHome() {
-    const slides = read(KEYS.slides, defaults.slides);
-    mountSlideshow("homeSlideshow", slides.home);
+    const localSlides = read(KEYS.slides, defaults.slides);
+    mountSlideshow('homeSlideshow', localSlides.home);
+
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      firebase.database().ref(KEYS.slides).once('value', (snap) => {
+        if (!snap.exists()) return;
+        const fbSlides = snap.val();
+        localStorage.setItem(KEYS.slides, JSON.stringify(fbSlides));
+        mountSlideshow('homeSlideshow', fbSlides.home);
+      });
+    }
   }
 
   function initAbout() {
-    const slides = read(KEYS.slides, defaults.slides);
-    mountSlideshow("teamSlideshow", slides.team);
+    const localSlides = read(KEYS.slides, defaults.slides);
+    mountSlideshow('teamSlideshow', localSlides.team);
+
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      firebase.database().ref(KEYS.slides).once('value', (snap) => {
+        if (!snap.exists()) return;
+        const fbSlides = snap.val();
+        localStorage.setItem(KEYS.slides, JSON.stringify(fbSlides));
+        mountSlideshow('teamSlideshow', fbSlides.team);
+      });
+    }
   }
 
   function initProjects() {
-    const slides = read(KEYS.slides, defaults.slides);
-    const projectEntries = read(KEYS.projectEntries, defaults.projectEntries);
-    mountSlideshow("projectSlideshow", slides.projects);
-
-    const finishedList = document.getElementById("finishedProjectsList");
-    const ongoingList = document.getElementById("ongoingProjectsList");
-    if (!finishedList || !ongoingList) return;
+    const finishedList = document.getElementById('finishedProjectsList');
+    const ongoingList = document.getElementById('ongoingProjectsList');
 
     const renderList = (items, emptyText) =>
       items.length
-        ? items.map((item) => `<li>${escapeHtml(item.name)}</li>`).join("")
+        ? items.map((item) => `<li>${escapeHtml(item.name)}</li>`).join('')
         : `<li class='notice'>${escapeHtml(emptyText)}</li>`;
 
-    finishedList.innerHTML = renderList(projectEntries.finished || [], "No finished projects configured yet.");
-    ongoingList.innerHTML = renderList(projectEntries.ongoing || [], "No ongoing projects configured yet.");
+    const renderProjects = (entries) => {
+      if (!finishedList || !ongoingList) return;
+      finishedList.innerHTML = renderList(entries.finished || [], 'No finished projects configured yet.');
+      ongoingList.innerHTML  = renderList(entries.ongoing  || [], 'No ongoing projects configured yet.');
+    };
+
+    // Render immediately from cache
+    const localSlides  = read(KEYS.slides,         defaults.slides);
+    const localEntries = read(KEYS.projectEntries, defaults.projectEntries);
+    mountSlideshow('projectSlideshow', localSlides.projects);
+    renderProjects(localEntries);
+
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      const db = firebase.database();
+      db.ref(KEYS.slides).once('value', (snap) => {
+        if (!snap.exists()) return;
+        const fbSlides = snap.val();
+        localStorage.setItem(KEYS.slides, JSON.stringify(fbSlides));
+        mountSlideshow('projectSlideshow', fbSlides.projects);
+      });
+      db.ref(KEYS.projectEntries).on('value', (snap) => {
+        if (!snap.exists()) return;
+        const entries = snap.val();
+        localStorage.setItem(KEYS.projectEntries, JSON.stringify(entries));
+        renderProjects(entries);
+      });
+    }
   }
 
   function initProducts() {
-    const products = read(KEYS.products, defaults.products);
-    const slides = read(KEYS.slides, defaults.slides);
-    mountSlideshow("productSlideshow", slides.products);
+    const wrap = document.getElementById('productsGrid');
 
-    const wrap = document.getElementById("productsGrid");
-    if (!wrap) return;
-    wrap.innerHTML = products
-      .map(
-        (p) => `
+    const renderProducts = (products) => {
+      if (!wrap) return;
+      wrap.innerHTML = products
+        .map((p) => `
       <article class="card product-card">
         <img src="${p.image}" alt="${escapeHtml(p.name)}" />
         <span class="badge">Product</span>
         <h3>${escapeHtml(p.name)}</h3>
         <p>${escapeHtml(p.description)}</p>
         <p><strong>Dimensions / Specs:</strong> ${escapeHtml(p.specs)}</p>
-      </article>`
-      )
-      .join("");
+      </article>`)
+        .join('');
+    };
+
+    // Render immediately from cache
+    const localSlides   = read(KEYS.slides,   defaults.slides);
+    const localProducts = read(KEYS.products, defaults.products);
+    mountSlideshow('productSlideshow', localSlides.products);
+    renderProducts(localProducts);
+
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      const db = firebase.database();
+      db.ref(KEYS.slides).once('value', (snap) => {
+        if (!snap.exists()) return;
+        const fbSlides = snap.val();
+        localStorage.setItem(KEYS.slides, JSON.stringify(fbSlides));
+        mountSlideshow('productSlideshow', fbSlides.products);
+      });
+      db.ref(KEYS.products).on('value', (snap) => {
+        if (!snap.exists()) return;
+        const fbProducts = snap.val();
+        localStorage.setItem(KEYS.products, JSON.stringify(fbProducts));
+        renderProducts(fbProducts);
+      });
+    }
   }
 
   function initServices() {
-    const services = read(KEYS.services, defaults.services);
-    const wrap = document.getElementById("servicesGrid");
-    if (!wrap) return;
-    if (!services.length) {
-      wrap.innerHTML = "<p class='notice'>No services configured yet.</p>";
-      return;
-    }
+    const wrap = document.getElementById('servicesGrid');
 
-    wrap.innerHTML = services
-      .map(
-        (service) => `
+    const renderServices = (services) => {
+      if (!wrap) return;
+      if (!services.length) {
+        wrap.innerHTML = "<p class='notice'>No services configured yet.</p>";
+        return;
+      }
+      wrap.innerHTML = services
+        .map((service) => `
       <article class="card">
         <span class="badge">Service</span>
         <h3>${escapeHtml(service.name)}</h3>
         <p>${escapeHtml(service.description)}</p>
-      </article>`
-      )
-      .join("");
+      </article>`)
+        .join('');
+    };
+
+    renderServices(read(KEYS.services, defaults.services));
+
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      firebase.database().ref(KEYS.services).on('value', (snap) => {
+        if (!snap.exists()) return;
+        const fbServices = snap.val();
+        localStorage.setItem(KEYS.services, JSON.stringify(fbServices));
+        renderServices(fbServices);
+      });
+    }
   }
 
   function initVideos() {
-    const videos = read(KEYS.videos, defaults.videos);
-    const wrap = document.getElementById("videoGrid");
-    if (!wrap) return;
-    if (!videos.length) {
-      wrap.innerHTML = "<p class='notice'>No videos configured yet.</p>";
-      return;
-    }
+    const wrap = document.getElementById('videoGrid');
 
-    const isLocalFile = window.location.protocol === "file:";
-
-    wrap.innerHTML = videos
-      .map((v) => {
-        const embedSrc = toYoutubeEmbed(v.url);
-        const watchUrl = toYoutubeWatchUrl(v.url);
-        return isLocalFile
-          ? `
+    const renderVideos = (videos) => {
+      if (!wrap) return;
+      if (!videos.length) {
+        wrap.innerHTML = "<p class='notice'>No videos configured yet.</p>";
+        return;
+      }
+      const isLocalFile = window.location.protocol === 'file:';
+      wrap.innerHTML = videos
+        .map((v) => {
+          const embedSrc = toYoutubeEmbed(v.url);
+          const watchUrl = toYoutubeWatchUrl(v.url);
+          return isLocalFile
+            ? `
           <article class="card embed-wrap">
-            <h3>${escapeHtml(v.title || "Video")}</h3>
+            <h3>${escapeHtml(v.title || 'Video')}</h3>
             <p class='notice'>YouTube preview is unavailable when the site is opened directly from local files. Upload the site to a domain or run it from a local web server to enable embedded playback.</p>
             <p><a href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener">Watch video on YouTube</a></p>
           </article>`
-          : `
+            : `
           <article class="card embed-wrap">
-            <h3>${escapeHtml(v.title || "Video")}</h3>
-            <iframe src="${embedSrc}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" title="${escapeHtml(v.title || "Video")}"></iframe>
+            <h3>${escapeHtml(v.title || 'Video')}</h3>
+            <iframe src="${embedSrc}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" title="${escapeHtml(v.title || 'Video')}"></iframe>
             <p><a href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener">Watch video on YouTube</a></p>
           </article>`;
-      })
-      .join("");
+        })
+        .join('');
+    };
+
+    renderVideos(read(KEYS.videos, defaults.videos));
+
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      firebase.database().ref(KEYS.videos).on('value', (snap) => {
+        if (!snap.exists()) return;
+        const fbVideos = snap.val();
+        localStorage.setItem(KEYS.videos, JSON.stringify(fbVideos));
+        renderVideos(fbVideos);
+      });
+    }
   }
 
   function initPptReader() {
-    const ppts = read(KEYS.ppts, defaults.ppts);
-    const list = document.getElementById("pptList");
-    const frame = document.getElementById("pptFrame");
-    const hint = document.getElementById("pptHint");
-    const downloadLink = document.getElementById("pptDownloadLink");
+    const list = document.getElementById('pptList');
+    const frame = document.getElementById('pptFrame');
+    const hint = document.getElementById('pptHint');
+    const downloadLink = document.getElementById('pptDownloadLink');
     if (!list || !frame || !hint || !downloadLink) return;
 
-    let activeObjectUrl = "";
+    let activeObjectUrl = '';
     const clearObjectUrl = () => {
       if (activeObjectUrl) {
         URL.revokeObjectURL(activeObjectUrl);
-        activeObjectUrl = "";
+        activeObjectUrl = '';
       }
     };
 
-    if (!ppts.length) {
-      list.innerHTML = "<p class='notice'>No PowerPoint uploaded yet. Admin can upload from maintenance panel.</p>";
-      frame.src = "about:blank";
-      hint.textContent = "";
-      downloadLink.classList.add("hidden");
-      return;
-    }
+    const renderPpts = (ppts) => {
+      if (!ppts.length) {
+        list.innerHTML = "<p class='notice'>No PowerPoint uploaded yet. Admin can upload from maintenance panel.</p>";
+        frame.src = 'about:blank';
+        hint.textContent = '';
+        downloadLink.classList.add('hidden');
+        return;
+      }
 
-    list.innerHTML = ppts
-      .map((p, idx) => `<button type='button' data-ppt='${p.id}' class='outline'>${escapeHtml(p.name || `Presentation ${idx + 1}`)}</button>`)
-      .join(" ");
+      list.innerHTML = ppts
+        .map((p, idx) => `<button type='button' data-ppt='${p.id}' class='outline'>${escapeHtml(p.name || `Presentation ${idx + 1}`)}</button>`)
+        .join(' ');
 
-    const show = async (ppt) => {
-      clearObjectUrl();
-      downloadLink.classList.add("hidden");
-      downloadLink.removeAttribute("href");
-      downloadLink.removeAttribute("download");
+      const show = async (ppt) => {
+        clearObjectUrl();
+        downloadLink.classList.add('hidden');
+        downloadLink.removeAttribute('href');
+        downloadLink.removeAttribute('download');
 
-      try {
-        if (ppt.publicUrl) {
-          frame.src = getPptEmbedSrc(ppt);
-          hint.textContent = "Viewing via Office online embed.";
-          return;
-        }
-
-        if (ppt.hasFile) {
-          const file = await getStoredPptFile(ppt.id);
-          if (file) {
-            activeObjectUrl = URL.createObjectURL(file);
-            frame.src = activeObjectUrl;
-            downloadLink.href = activeObjectUrl;
-            downloadLink.download = ppt.fileName || ppt.name || "presentation.pptx";
-            downloadLink.classList.remove("hidden");
-            hint.textContent = "Local presentation loaded from browser storage. If inline preview does not display, use the link below to open or download it.";
+        try {
+          if (ppt.publicUrl) {
+            frame.src = getPptEmbedSrc(ppt);
+            hint.textContent = 'Viewing via Office online embed.';
             return;
           }
-        }
 
-        if (ppt.dataUrl) {
-          frame.src = ppt.dataUrl;
-          hint.textContent = "Viewing legacy locally stored presentation data. If preview does not display, re-upload the file or use a public URL.";
-          return;
-        }
+          if (ppt.hasFile) {
+            const file = await getStoredPptFile(ppt.id);
+            if (file) {
+              activeObjectUrl = URL.createObjectURL(file);
+              frame.src = activeObjectUrl;
+              downloadLink.href = activeObjectUrl;
+              downloadLink.download = ppt.fileName || ppt.name || 'presentation.pptx';
+              downloadLink.classList.remove('hidden');
+              hint.textContent = 'Local presentation loaded from browser storage. If inline preview does not display, use the link below to open or download it.';
+              return;
+            }
+          }
 
-        frame.src = "about:blank";
-        hint.textContent = "Presentation file not found. Re-upload the PPT/PPTX file from Admin or provide a public URL.";
-      } catch (error) {
-        frame.src = "about:blank";
-        hint.textContent = `Unable to load presentation: ${error.message}`;
-      }
+          if (ppt.dataUrl) {
+            frame.src = ppt.dataUrl;
+            hint.textContent = 'Viewing legacy locally stored presentation data. If preview does not display, re-upload the file or use a public URL.';
+            return;
+          }
+
+          frame.src = 'about:blank';
+          hint.textContent = 'Presentation file not found. Re-upload the PPT/PPTX file from Admin or provide a public URL.';
+        } catch (error) {
+          frame.src = 'about:blank';
+          hint.textContent = `Unable to load presentation: ${error.message}`;
+        }
+      };
+
+      show(ppts[0]);
+      list.querySelectorAll('[data-ppt]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const found = ppts.find((x) => x.id === btn.dataset.ppt);
+          if (found) show(found);
+        });
+      });
     };
 
-    show(ppts[0]);
-
-    list.querySelectorAll("[data-ppt]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const found = ppts.find((x) => x.id === btn.dataset.ppt);
-        if (found) show(found);
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+      firebase.database().ref(KEYS.ppts).once('value', (snap) => {
+        const fbPpts = snap.exists() ? snap.val() : read(KEYS.ppts, defaults.ppts);
+        localStorage.setItem(KEYS.ppts, JSON.stringify(fbPpts));
+        renderPpts(fbPpts);
       });
-    });
+    } else {
+      renderPpts(read(KEYS.ppts, defaults.ppts));
+    }
 
-    window.addEventListener("beforeunload", clearObjectUrl, { once: true });
+    window.addEventListener('beforeunload', clearObjectUrl, { once: true });
   }
 
   function initLogin() {
