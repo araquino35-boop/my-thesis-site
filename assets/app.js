@@ -105,7 +105,65 @@
 
   const page = document.body.dataset.page || "";
 
+  // Firebase Configuration - Replace with your Firebase credentials
+  const firebaseConfig = {
+    apiKey: "AIzaSyAIzaSyBo1FC4G2Qd6z2eoIxnUVKFvl_Bhwko",
+    authDomain: "cmlaluminum.firebaseapp.com",
+    databaseURL: "https://cmlaluminum-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "cmlaluminum",
+    storageBucket: "cmlaluminum.firebasestorage.app",
+    messagingSenderId: "685030789113",
+    appId: "1:685030789113:web:8d3136c3666a2afeb3728"
+  };
+
+  let db = null;
+  let firebaseReady = false;
+
+  // Initialize Firebase
+  async function initFirebase() {
+    try {
+      // Dynamically load Firebase SDK
+      if (!window.firebase) {
+        const script = document.createElement('script');
+        script.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+        script.onload = () => {
+          const script2 = document.createElement('script');
+          script2.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js';
+          script2.onload = () => {
+            setupFirebase();
+          };
+          document.head.appendChild(script2);
+        };
+        document.head.appendChild(script);
+      } else {
+        setupFirebase();
+      }
+    } catch (error) {
+      console.error('Firebase initialization error:', error);
+      firebaseReady = false;
+    }
+  }
+
+  function setupFirebase() {
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.database();
+      firebaseReady = true;
+      console.log('Firebase connected successfully');
+      
+      // Initialize page after Firebase is ready
+      initializePage();
+    } catch (error) {
+      console.error('Firebase setup error:', error);
+      firebaseReady = false;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
+    initFirebase();
+  });
+
+  function initializePage() {
     seed();
     setFooter();
     setActiveNav();
@@ -120,18 +178,31 @@
     if (page === "ppt") initPptReader();
     if (page === "login") initLogin();
     if (page === "admin") initAdmin();
-  });
+  }
 
   function uid() {
     return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   }
 
   function placeholder(text, bg = "#3d5a80") {
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='700'><rect fill='${bg}' width='100%' height='100%'/><text x='50%' y='50%' font-size='50' fill='white' text-anchor='middle' font-family='Arial'>${text}</text></svg>`;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='700'><rect fill='${bg}' width='100%' height='100%'/><text x='50%' y='50%' font-size='50' fill='white' text-anchor='middle' dy='.3em'>${escapeHtml(text)}</text></svg>`;
     return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
 
-  function read(key, fallback) {
+  // Read from Firebase or localStorage
+  async function read(key, fallback) {
+    if (firebaseReady && db) {
+      try {
+        const snapshot = await db.ref(key).get();
+        if (snapshot.exists()) {
+          return snapshot.val();
+        }
+      } catch (error) {
+        console.error(`Error reading ${key} from Firebase:`, error);
+      }
+    }
+    
+    // Fallback to localStorage
     const raw = localStorage.getItem(key);
     if (!raw) return fallback;
     try {
@@ -141,17 +212,55 @@
     }
   }
 
-  function write(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
+  // Write to Firebase and localStorage
+  async function write(key, value) {
+    if (firebaseReady && db) {
+      try {
+        await db.ref(key).set(value);
+      } catch (error) {
+        console.error(`Error writing ${key} to Firebase:`, error);
+      }
+    }
+    
+    // Also save to localStorage as backup
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.error(`Error writing ${key} to localStorage:`, error);
+    }
   }
 
-  function seed() {
-    if (!localStorage.getItem(KEYS.products)) write(KEYS.products, defaults.products);
-    if (!localStorage.getItem(KEYS.services)) write(KEYS.services, defaults.services);
-    if (!localStorage.getItem(KEYS.projectEntries)) write(KEYS.projectEntries, defaults.projectEntries);
-    if (!localStorage.getItem(KEYS.slides)) write(KEYS.slides, defaults.slides);
-    if (!localStorage.getItem(KEYS.videos)) write(KEYS.videos, defaults.videos);
-    if (!localStorage.getItem(KEYS.ppts)) write(KEYS.ppts, defaults.ppts);
+  // Setup real-time listener
+  function listenToChanges(key, callback) {
+    if (firebaseReady && db) {
+      db.ref(key).on('value', (snapshot) => {
+        if (snapshot.exists()) {
+          callback(snapshot.val());
+        }
+      }, (error) => {
+        console.error(`Error listening to ${key}:`, error);
+      });
+    }
+  }
+
+  async function seed() {
+    const checkAndSeed = async (key, defaultValue) => {
+      try {
+        const existing = await read(key, null);
+        if (!existing) {
+          await write(key, defaultValue);
+        }
+      } catch (error) {
+        console.error(`Error seeding ${key}:`, error);
+      }
+    };
+
+    await checkAndSeed(KEYS.products, defaults.products);
+    await checkAndSeed(KEYS.services, defaults.services);
+    await checkAndSeed(KEYS.projectEntries, defaults.projectEntries);
+    await checkAndSeed(KEYS.slides, defaults.slides);
+    await checkAndSeed(KEYS.videos, defaults.videos);
+    await checkAndSeed(KEYS.ppts, defaults.ppts);
   }
 
   function setFooter() {
@@ -232,19 +341,28 @@
     }
   }
 
-  function initHome() {
-    const slides = read(KEYS.slides, defaults.slides);
+  async function initHome() {
+    const slides = await read(KEYS.slides, defaults.slides);
     mountSlideshow("homeSlideshow", slides.home);
+    
+    // Listen for real-time updates
+    listenToChanges(KEYS.slides, (newSlides) => {
+      mountSlideshow("homeSlideshow", newSlides.home);
+    });
   }
 
-  function initAbout() {
-    const slides = read(KEYS.slides, defaults.slides);
+  async function initAbout() {
+    const slides = await read(KEYS.slides, defaults.slides);
     mountSlideshow("teamSlideshow", slides.team);
+    
+    listenToChanges(KEYS.slides, (newSlides) => {
+      mountSlideshow("teamSlideshow", newSlides.team);
+    });
   }
 
-  function initProjects() {
-    const slides = read(KEYS.slides, defaults.slides);
-    const projectEntries = read(KEYS.projectEntries, defaults.projectEntries);
+  async function initProjects() {
+    const slides = await read(KEYS.slides, defaults.slides);
+    const projectEntries = await read(KEYS.projectEntries, defaults.projectEntries);
     mountSlideshow("projectSlideshow", slides.projects);
 
     const finishedList = document.getElementById("finishedProjectsList");
@@ -252,86 +370,117 @@
     if (!finishedList || !ongoingList) return;
 
     const renderList = (items, emptyText) =>
-      items.length
+      items && items.length
         ? items.map((item) => `<li>${escapeHtml(item.name)}</li>`).join("")
         : `<li class='notice'>${escapeHtml(emptyText)}</li>`;
 
     finishedList.innerHTML = renderList(projectEntries.finished || [], "No finished projects configured yet.");
     ongoingList.innerHTML = renderList(projectEntries.ongoing || [], "No ongoing projects configured yet.");
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.projectEntries, (newEntries) => {
+      finishedList.innerHTML = renderList(newEntries.finished || [], "No finished projects configured yet.");
+      ongoingList.innerHTML = renderList(newEntries.ongoing || [], "No ongoing projects configured yet.");
+      mountSlideshow("projectSlideshow", (newEntries.slides || defaults.slides).projects);
+    });
   }
 
-  function initProducts() {
-    const products = read(KEYS.products, defaults.products);
-    const slides = read(KEYS.slides, defaults.slides);
+  async function initProducts() {
+    const products = await read(KEYS.products, defaults.products);
+    const slides = await read(KEYS.slides, defaults.slides);
     mountSlideshow("productSlideshow", slides.products);
 
     const wrap = document.getElementById("productsGrid");
     if (!wrap) return;
-    wrap.innerHTML = products
-      .map(
-        (p) => `
-      <article class="card product-card">
-        <img src="${p.image}" alt="${escapeHtml(p.name)}" />
-        <span class="badge">Product</span>
-        <h3>${escapeHtml(p.name)}</h3>
-        <p>${escapeHtml(p.description)}</p>
-        <p><strong>Dimensions / Specs:</strong> ${escapeHtml(p.specs)}</p>
-      </article>`
-      )
-      .join("");
+    
+    const renderProducts = (productList) => {
+      wrap.innerHTML = productList
+        .map(
+          (p) => `
+        <article class="card product-card">
+          <img src="${p.image}" alt="${escapeHtml(p.name)}" />
+          <span class="badge">Product</span>
+          <h3>${escapeHtml(p.name)}</h3>
+          <p>${escapeHtml(p.description)}</p>
+          <p><strong>Dimensions / Specs:</strong> ${escapeHtml(p.specs)}</p>
+        </article>`
+        )
+        .join("");
+    };
+
+    renderProducts(products);
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.products, renderProducts);
   }
 
-  function initServices() {
-    const services = read(KEYS.services, defaults.services);
+  async function initServices() {
+    const services = await read(KEYS.services, defaults.services);
     const wrap = document.getElementById("servicesGrid");
     if (!wrap) return;
-    if (!services.length) {
-      wrap.innerHTML = "<p class='notice'>No services configured yet.</p>";
-      return;
-    }
+    
+    const renderServices = (serviceList) => {
+      if (!serviceList || !serviceList.length) {
+        wrap.innerHTML = "<p class='notice'>No services configured yet.</p>";
+        return;
+      }
 
-    wrap.innerHTML = services
-      .map(
-        (service) => `
-      <article class="card">
-        <span class="badge">Service</span>
-        <h3>${escapeHtml(service.name)}</h3>
-        <p>${escapeHtml(service.description)}</p>
-      </article>`
-      )
-      .join("");
+      wrap.innerHTML = serviceList
+        .map(
+          (service) => `
+        <article class="card">
+          <span class="badge">Service</span>
+          <h3>${escapeHtml(service.name)}</h3>
+          <p>${escapeHtml(service.description)}</p>
+        </article>`
+        )
+        .join("");
+    };
+
+    renderServices(services);
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.services, renderServices);
   }
 
-  function initVideos() {
-    const videos = read(KEYS.videos, defaults.videos);
+  async function initVideos() {
+    const videos = await read(KEYS.videos, defaults.videos);
     const wrap = document.getElementById("videoGrid");
     if (!wrap) return;
-    if (!videos.length) {
-      wrap.innerHTML = "<p class='notice'>No videos configured yet.</p>";
-      return;
-    }
-
+    
     const isLocalFile = window.location.protocol === "file:";
 
-    wrap.innerHTML = videos
-      .map((v) => {
-        const embedSrc = toYoutubeEmbed(v.url);
-        const watchUrl = toYoutubeWatchUrl(v.url);
-        return isLocalFile
-          ? `
-          <article class="card embed-wrap">
-            <h3>${escapeHtml(v.title || "Video")}</h3>
-            <p class='notice'>YouTube preview is unavailable when the site is opened directly from local files. Upload the site to a domain or run it from a local web server to enable embedded playback.</p>
-            <p><a href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener">Watch video on YouTube</a></p>
-          </article>`
-          : `
-          <article class="card embed-wrap">
-            <h3>${escapeHtml(v.title || "Video")}</h3>
-            <iframe src="${embedSrc}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" title="${escapeHtml(v.title || "Video")}"></iframe>
-            <p><a href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener">Watch video on YouTube</a></p>
-          </article>`;
-      })
-      .join("");
+    const renderVideos = (videoList) => {
+      if (!videoList || !videoList.length) {
+        wrap.innerHTML = "<p class='notice'>No videos configured yet.</p>";
+        return;
+      }
+
+      wrap.innerHTML = videoList
+        .map((v) => {
+          const embedSrc = toYoutubeEmbed(v.url);
+          const watchUrl = toYoutubeWatchUrl(v.url);
+          return isLocalFile
+            ? `
+            <article class="card embed-wrap">
+              <h3>${escapeHtml(v.title || "Video")}</h3>
+              <p class='notice'>YouTube preview is unavailable when the site is opened directly from local files. Upload the site to a domain or run it from a local web server to enable embedded playback.</p>
+              <p><a href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener">Watch video on YouTube</a></p>
+            </article>`
+            : `
+            <article class="card embed-wrap">
+              <h3>${escapeHtml(v.title || "Video")}</h3>
+              <iframe src="${embedSrc}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" title="${escapeHtml(v.title || "Video")}"></iframe>
+              <p><a href="${escapeHtml(watchUrl)}" target="_blank" rel="noopener">Watch video on YouTube</a></p>
+            </article>`;
+        })
+        .join("");
+    };
+
+    renderVideos(videos);
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.videos, renderVideos);
   }
 
   function initPptReader() {
@@ -350,68 +499,75 @@
       }
     };
 
-    if (!ppts.length) {
-      list.innerHTML = "<p class='notice'>No PowerPoint uploaded yet. Admin can upload from maintenance panel.</p>";
-      frame.src = "about:blank";
-      hint.textContent = "";
-      downloadLink.classList.add("hidden");
-      return;
-    }
+    const renderPptReader = async (pptList) => {
+      if (!pptList || !pptList.length) {
+        list.innerHTML = "<p class='notice'>No PowerPoint uploaded yet. Admin can upload from maintenance panel.</p>";
+        frame.src = "about:blank";
+        hint.textContent = "";
+        downloadLink.classList.add("hidden");
+        return;
+      }
 
-    list.innerHTML = ppts
-      .map((p, idx) => `<button type='button' data-ppt='${p.id}' class='outline'>${escapeHtml(p.name || `Presentation ${idx + 1}`)}</button>`)
-      .join(" ");
+      list.innerHTML = pptList
+        .map((p, idx) => `<button type='button' data-ppt='${p.id}' class='outline'>${escapeHtml(p.name || `Presentation ${idx + 1}`)}</button>`)
+        .join(" ");
 
-    const show = async (ppt) => {
-      clearObjectUrl();
-      downloadLink.classList.add("hidden");
-      downloadLink.removeAttribute("href");
-      downloadLink.removeAttribute("download");
+      const show = async (ppt) => {
+        clearObjectUrl();
+        downloadLink.classList.add("hidden");
+        downloadLink.removeAttribute("href");
+        downloadLink.removeAttribute("download");
 
-      try {
-        if (ppt.publicUrl) {
-          frame.src = getPptEmbedSrc(ppt);
-          hint.textContent = "Viewing via Office online embed.";
-          return;
-        }
-
-        if (ppt.hasFile) {
-          const file = await getStoredPptFile(ppt.id);
-          if (file) {
-            activeObjectUrl = URL.createObjectURL(file);
-            frame.src = activeObjectUrl;
-            downloadLink.href = activeObjectUrl;
-            downloadLink.download = ppt.fileName || ppt.name || "presentation.pptx";
-            downloadLink.classList.remove("hidden");
-            hint.textContent = "Local presentation loaded from browser storage. If inline preview does not display, use the link below to open or download it.";
+        try {
+          if (ppt.publicUrl) {
+            frame.src = getPptEmbedSrc(ppt);
+            hint.textContent = "Viewing via Office online embed.";
             return;
           }
-        }
 
-        if (ppt.dataUrl) {
-          frame.src = ppt.dataUrl;
-          hint.textContent = "Viewing legacy locally stored presentation data. If preview does not display, re-upload the file or use a public URL.";
-          return;
-        }
+          if (ppt.hasFile) {
+            const file = await getStoredPptFile(ppt.id);
+            if (file) {
+              activeObjectUrl = URL.createObjectURL(file);
+              frame.src = activeObjectUrl;
+              downloadLink.href = activeObjectUrl;
+              downloadLink.download = ppt.fileName || ppt.name || "presentation.pptx";
+              downloadLink.classList.remove("hidden");
+              hint.textContent = "Local presentation loaded from browser storage. If inline preview does not display, use the link below to open or download it.";
+              return;
+            }
+          }
 
-        frame.src = "about:blank";
-        hint.textContent = "Presentation file not found. Re-upload the PPT/PPTX file from Admin or provide a public URL.";
-      } catch (error) {
-        frame.src = "about:blank";
-        hint.textContent = `Unable to load presentation: ${error.message}`;
-      }
+          if (ppt.dataUrl) {
+            frame.src = ppt.dataUrl;
+            hint.textContent = "Viewing legacy locally stored presentation data. If preview does not display, re-upload the file or use a public URL.";
+            return;
+          }
+
+          frame.src = "about:blank";
+          hint.textContent = "Presentation file not found. Re-upload the PPT/PPTX file from Admin or provide a public URL.";
+        } catch (error) {
+          frame.src = "about:blank";
+          hint.textContent = `Unable to load presentation: ${error.message}`;
+        }
+      };
+
+      show(pptList[0]);
+
+      list.querySelectorAll("[data-ppt]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const found = pptList.find((x) => x.id === btn.dataset.ppt);
+          if (found) show(found);
+        });
+      });
+
+      window.addEventListener("beforeunload", clearObjectUrl, { once: true });
     };
 
-    show(ppts[0]);
+    renderPptReader(ppts);
 
-    list.querySelectorAll("[data-ppt]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const found = ppts.find((x) => x.id === btn.dataset.ppt);
-        if (found) show(found);
-      });
-    });
-
-    window.addEventListener("beforeunload", clearObjectUrl, { once: true });
+    // Listen for real-time updates
+    listenToChanges(KEYS.ppts, renderPptReader);
   }
 
   function initLogin() {
@@ -483,8 +639,8 @@
     const msg = document.getElementById("productMsg");
     if (!form || !list) return;
 
-    const render = () => {
-      const items = read(KEYS.products, defaults.products);
+    const render = async () => {
+      const items = await read(KEYS.products, defaults.products);
       list.innerHTML = items
         .map(
           (item) => `
@@ -501,17 +657,18 @@
         .join("");
 
       list.querySelectorAll("[data-delete]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const current = read(KEYS.products, defaults.products).filter((p) => p.id !== btn.dataset.delete);
-          write(KEYS.products, current);
+        btn.addEventListener("click", async () => {
+          const current = await read(KEYS.products, defaults.products);
+          const updated = current.filter((p) => p.id !== btn.dataset.delete);
+          await write(KEYS.products, updated);
           render();
           msg.textContent = "Product deleted.";
         });
       });
 
       list.querySelectorAll("[data-edit]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const found = read(KEYS.products, defaults.products).find((p) => p.id === btn.dataset.edit);
+        btn.addEventListener("click", async () => {
+          const found = (await read(KEYS.products, defaults.products)).find((p) => p.id === btn.dataset.edit);
           if (!found) return;
           form.productId.value = found.id;
           form.name.value = found.name;
@@ -524,7 +681,7 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const items = read(KEYS.products, defaults.products);
+      const items = await read(KEYS.products, defaults.products);
       const id = form.productId.value.trim();
       const file = form.image.files[0] || null;
       const imageData = file ? await fileToDataUrl(file) : null;
@@ -557,13 +714,18 @@
         msg.textContent = "Product added.";
       }
 
-      write(KEYS.products, items);
+      await write(KEYS.products, items);
       form.reset();
       form.productId.value = "";
       render();
     });
 
     render();
+
+    // Listen for real-time updates from other admin sessions
+    listenToChanges(KEYS.products, () => {
+      render();
+    });
   }
 
   function initServiceAdmin() {
@@ -572,8 +734,8 @@
     const msg = document.getElementById("serviceMsg");
     if (!form || !list) return;
 
-    const render = () => {
-      const items = read(KEYS.services, defaults.services);
+    const render = async () => {
+      const items = await read(KEYS.services, defaults.services);
       list.innerHTML = items
         .map(
           (item) => `
@@ -590,17 +752,18 @@
         .join("");
 
       list.querySelectorAll("[data-delete]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const current = read(KEYS.services, defaults.services).filter((service) => service.id !== btn.dataset.delete);
-          write(KEYS.services, current);
+        btn.addEventListener("click", async () => {
+          const current = await read(KEYS.services, defaults.services);
+          const updated = current.filter((service) => service.id !== btn.dataset.delete);
+          await write(KEYS.services, updated);
           render();
           msg.textContent = "Service deleted.";
         });
       });
 
       list.querySelectorAll("[data-edit]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const found = read(KEYS.services, defaults.services).find((service) => service.id === btn.dataset.edit);
+        btn.addEventListener("click", async () => {
+          const found = (await read(KEYS.services, defaults.services)).find((service) => service.id === btn.dataset.edit);
           if (!found) return;
           form.serviceId.value = found.id;
           form.name.value = found.name;
@@ -610,9 +773,9 @@
       });
     };
 
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const items = read(KEYS.services, defaults.services);
+      const items = await read(KEYS.services, defaults.services);
       const id = form.serviceId.value.trim();
 
       if (id) {
@@ -634,13 +797,18 @@
         msg.textContent = "Service added.";
       }
 
-      write(KEYS.services, items);
+      await write(KEYS.services, items);
       form.reset();
       form.serviceId.value = "";
       render();
     });
 
     render();
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.services, () => {
+      render();
+    });
   }
 
   function initProjectEntryAdmin() {
@@ -649,8 +817,8 @@
     const msg = document.getElementById("projectEntryMsg");
     if (!form || !list) return;
 
-    const render = () => {
-      const entries = read(KEYS.projectEntries, defaults.projectEntries);
+    const render = async () => {
+      const entries = await read(KEYS.projectEntries, defaults.projectEntries);
       const finished = entries.finished || [];
       const ongoing = entries.ongoing || [];
       const allItems = [
@@ -678,18 +846,18 @@
       }
 
       list.querySelectorAll("[data-delete]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const current = read(KEYS.projectEntries, defaults.projectEntries);
+        btn.addEventListener("click", async () => {
+          const current = await read(KEYS.projectEntries, defaults.projectEntries);
           current[btn.dataset.type] = (current[btn.dataset.type] || []).filter((item) => item.id !== btn.dataset.delete);
-          write(KEYS.projectEntries, current);
+          await write(KEYS.projectEntries, current);
           render();
           msg.textContent = "Project entry deleted.";
         });
       });
 
       list.querySelectorAll("[data-edit]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const current = read(KEYS.projectEntries, defaults.projectEntries);
+        btn.addEventListener("click", async () => {
+          const current = await read(KEYS.projectEntries, defaults.projectEntries);
           const found = (current[btn.dataset.type] || []).find((item) => item.id === btn.dataset.edit);
           if (!found) return;
           form.projectEntryId.value = found.id;
@@ -700,9 +868,9 @@
       });
     };
 
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const current = read(KEYS.projectEntries, defaults.projectEntries);
+      const current = await read(KEYS.projectEntries, defaults.projectEntries);
       const id = form.projectEntryId.value.trim();
       const type = form.type.value;
       const name = form.name.value.trim();
@@ -728,7 +896,7 @@
         msg.textContent = "Project entry added.";
       }
 
-      write(KEYS.projectEntries, current);
+      await write(KEYS.projectEntries, current);
       form.reset();
       form.projectEntryId.value = "";
       form.type.value = "finished";
@@ -736,6 +904,11 @@
     });
 
     render();
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.projectEntries, () => {
+      render();
+    });
   }
 
   function initSlideshowAdmin() {
@@ -744,8 +917,8 @@
     const msg = document.getElementById("slideMsg");
     if (!form || !list) return;
 
-    const render = () => {
-      const slides = read(KEYS.slides, defaults.slides);
+    const render = async () => {
+      const slides = await read(KEYS.slides, defaults.slides);
       const type = form.slideType.value;
       const items = slides[type] || [];
 
@@ -765,10 +938,10 @@
         .join("");
 
       list.querySelectorAll("[data-delete]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const current = read(KEYS.slides, defaults.slides);
+        btn.addEventListener("click", async () => {
+          const current = await read(KEYS.slides, defaults.slides);
           current[type] = (current[type] || []).filter((x) => x.id !== btn.dataset.delete);
-          write(KEYS.slides, current);
+          await write(KEYS.slides, current);
           render();
           msg.textContent = "Slide deleted.";
         });
@@ -782,12 +955,12 @@
           picker.onchange = async () => {
             const file = picker.files[0];
             if (!file) return;
-            const current = read(KEYS.slides, defaults.slides);
+            const current = await read(KEYS.slides, defaults.slides);
             const idx = (current[type] || []).findIndex((x) => x.id === btn.dataset.replace);
             if (idx < 0) return;
             current[type][idx].src = await fileToDataUrl(file);
             current[type][idx].caption = current[type][idx].caption || file.name;
-            write(KEYS.slides, current);
+            await write(KEYS.slides, current);
             render();
             msg.textContent = "Slide replaced.";
           };
@@ -809,10 +982,10 @@
       }
 
       const images = await Promise.all(files.map((f) => fileToDataUrl(f)));
-      const current = read(KEYS.slides, defaults.slides);
+      const current = await read(KEYS.slides, defaults.slides);
       if (!current[section]) current[section] = [];
       images.forEach((src, i) => current[section].push({ id: uid(), src, caption: files.length === 1 ? caption : `${caption} ${i + 1}` }));
-      write(KEYS.slides, current);
+      await write(KEYS.slides, current);
       form.reset();
       form.slideType.value = section;
       render();
@@ -820,6 +993,11 @@
     });
 
     render();
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.slides, () => {
+      render();
+    });
   }
 
   function initVideoAdmin() {
@@ -828,8 +1006,8 @@
     const msg = document.getElementById("videoMsg");
     if (!form || !list) return;
 
-    const render = () => {
-      const videos = read(KEYS.videos, defaults.videos);
+    const render = async () => {
+      const videos = await read(KEYS.videos, defaults.videos);
       list.innerHTML = videos
         .map(
           (v) => `
@@ -846,17 +1024,17 @@
         .join("");
 
       list.querySelectorAll("[data-delete]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const current = read(KEYS.videos, defaults.videos).filter((v) => v.id !== btn.dataset.delete);
-          write(KEYS.videos, current);
+        btn.addEventListener("click", async () => {
+          const current = (await read(KEYS.videos, defaults.videos)).filter((v) => v.id !== btn.dataset.delete);
+          await write(KEYS.videos, current);
           render();
           msg.textContent = "Video link deleted.";
         });
       });
 
       list.querySelectorAll("[data-edit]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const found = read(KEYS.videos, defaults.videos).find((v) => v.id === btn.dataset.edit);
+        btn.addEventListener("click", async () => {
+          const found = (await read(KEYS.videos, defaults.videos)).find((v) => v.id === btn.dataset.edit);
           if (!found) return;
           form.videoId.value = found.id;
           form.title.value = found.title;
@@ -866,10 +1044,10 @@
       });
     };
 
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const id = form.videoId.value.trim();
-      const videos = read(KEYS.videos, defaults.videos);
+      const videos = await read(KEYS.videos, defaults.videos);
       const payload = {
         id: id || uid(),
         title: form.title.value.trim() || "Company Video",
@@ -890,13 +1068,18 @@
         msg.textContent = "Video link added.";
       }
 
-      write(KEYS.videos, videos);
+      await write(KEYS.videos, videos);
       form.reset();
       form.videoId.value = "";
       render();
     });
 
     render();
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.videos, () => {
+      render();
+    });
   }
 
   function initPptAdmin() {
@@ -905,9 +1088,9 @@
     const msg = document.getElementById("pptMsg");
     if (!form || !list || !msg) return;
 
-    const render = () => {
-      const ppts = read(KEYS.ppts, defaults.ppts);
-      if (!ppts.length) {
+    const render = async () => {
+      const ppts = await read(KEYS.ppts, defaults.ppts);
+      if (!ppts || !ppts.length) {
         list.innerHTML = "<p class='notice'>No PowerPoint uploaded yet.</p>";
         return;
       }
@@ -930,12 +1113,12 @@
 
       list.querySelectorAll("[data-delete]").forEach((btn) => {
         btn.addEventListener("click", async () => {
-          const current = read(KEYS.ppts, defaults.ppts).filter((p) => p.id !== btn.dataset.delete);
+          const current = (await read(KEYS.ppts, defaults.ppts)).filter((p) => p.id !== btn.dataset.delete);
           try {
             await deleteStoredPptFile(btn.dataset.delete);
           } catch {
           }
-          write(KEYS.ppts, current);
+          await write(KEYS.ppts, current);
           render();
           msg.textContent = "PPT deleted.";
         });
@@ -944,7 +1127,7 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const ppts = read(KEYS.ppts, defaults.ppts);
+      const ppts = await read(KEYS.ppts, defaults.ppts);
       const file = form.pptFile.files[0] || null;
       const publicUrl = form.publicUrl.value.trim();
 
@@ -976,7 +1159,7 @@
           fileName
         });
 
-        write(KEYS.ppts, ppts);
+        await write(KEYS.ppts, ppts);
         form.reset();
         render();
         msg.textContent = "PPT uploaded.";
@@ -986,6 +1169,11 @@
     });
 
     render();
+
+    // Listen for real-time updates
+    listenToChanges(KEYS.ppts, () => {
+      render();
+    });
   }
 
   function toYoutubeEmbed(url) {
