@@ -25,6 +25,11 @@
     </div>
   </header>
 
+	<!-- ── Maintenance / Announcement Banner (controlled via Firebase) ──────── -->
+	<div id="maintenanceBanner" class="maintenance-banner hidden" role="alert">
+		<span id="maintenanceBannerText"></span>
+	</div>
+
 	<main class="container">
 		<section class="hero">
 			<div class="container hero-grid">
@@ -127,5 +132,10 @@
   </footer>
 
   <script src="assets/app.js"></script>
+
+  <!-- Firebase Realtime Database (compat CDN) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="assets/firebase.js"></script>
 </body>
 </html>

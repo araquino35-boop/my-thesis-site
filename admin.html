@@ -71,7 +71,7 @@
       </article>
 
       <article class="card">
-        <h2>Project List Management</h2>
+        <h2>Project List Managements</h2>
         <form id="projectEntryForm">
           <input type="hidden" id="projectEntryId" name="projectEntryId" />
 
@@ -130,6 +130,41 @@
         <div id="videoList"></div>
       </article>
 
+      <article class="card">
+        <h2>PowerPoint Management</h2>
+        <form id="pptForm">
+          <label for="pptTitle">Presentation Title</label>
+          <input id="pptTitle" name="title" type="text" placeholder="Optional — defaults to filename" />
+
+          <label for="pptFile">Upload PPT / PPTX File</label>
+          <input id="pptFile" name="pptFile" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+
+          <label for="publicUrl">— or — Office 365 Embed URL</label>
+          <input id="publicUrl" name="publicUrl" type="url" placeholder="https://view.officeapps.live.com/op/embed.aspx?src=..." />
+
+          <button type="submit">Upload / Save PPT</button>
+        </form>
+        <p id="pptMsg" class="notice"></p>
+        <div id="pptAdminList"></div>
+      </article>
+
+      <article class="card">
+        <h2>Maintenance Announcement</h2>
+        <p class="notice">This message will appear as a banner on the homepage for <strong>all visitors in real time</strong> via Firebase.</p>
+        <form id="maintenanceForm">
+          <label for="maintenanceMessage">Announcement Text</label>
+          <textarea id="maintenanceMessage" name="message" rows="3" placeholder="e.g. We are currently under maintenance. Please check back later."></textarea>
+
+          <label class="toggle-label">
+            <input id="maintenanceActive" name="active" type="checkbox" />
+            Show banner on homepage
+          </label>
+
+          <button type="submit">Save &amp; Publish</button>
+        </form>
+        <p id="maintenanceMsg" class="notice"></p>
+      </article>
+
 
     </section>
   </main>
@@ -144,5 +179,10 @@
   </footer>
 
   <script src="assets/app.js"></script>
+
+  <!-- Firebase Realtime Database (compat CDN) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="assets/firebase.js"></script>
 </body>
 </html>
