@@ -28,7 +28,7 @@
   <main class="container">
     <section class="hero">
       <h1>Maintenance Panel</h1>
-      <p>Manage products, slideshows, YouTube links, and PowerPoint uploads from this admin page.</p>
+      <p>Manage products, slideshows, YouTube links, and maintenance announcements from this admin page.</p>
     </section>
 
     <section class="admin-grid">
@@ -45,8 +45,8 @@
           <label for="productSpecs">Dimensions / Specs</label>
           <textarea id="productSpecs" name="specs" required></textarea>
 
-          <label for="productImage">Image Upload</label>
-          <input id="productImage" name="image" type="file" accept="image/*" />
+          <label for="productImageUrl">Image URL</label>
+          <input id="productImageUrl" name="imageUrl" type="url" placeholder="https://..." required />
 
           <button type="submit">Save Product</button>
         </form>
@@ -104,10 +104,10 @@
           <label for="slideCaption">Caption</label>
           <input id="slideCaption" name="slideCaption" type="text" placeholder="Optional caption" />
 
-          <label for="slideImages">Upload Image(s)</label>
-          <input id="slideImages" name="slideImages" type="file" accept="image/*" multiple required />
+          <label for="slideImageUrls">Image URL(s)</label>
+          <textarea id="slideImageUrls" name="slideImageUrls" rows="4" placeholder="One URL per line" required></textarea>
 
-          <button type="submit">Upload Slides</button>
+          <button type="submit">Add Slides</button>
         </form>
         <p id="slideMsg" class="notice"></p>
         <div id="slideList"></div>
@@ -128,24 +128,6 @@
         </form>
         <p id="videoMsg" class="notice"></p>
         <div id="videoList"></div>
-      </article>
-
-      <article class="card">
-        <h2>PowerPoint Management</h2>
-        <form id="pptForm">
-          <label for="pptTitle">Presentation Title</label>
-          <input id="pptTitle" name="title" type="text" placeholder="Optional — defaults to filename" />
-
-          <label for="pptFile">Upload PPT / PPTX File</label>
-          <input id="pptFile" name="pptFile" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" />
-
-          <label for="publicUrl">— or — Office 365 Embed URL</label>
-          <input id="publicUrl" name="publicUrl" type="url" placeholder="https://view.officeapps.live.com/op/embed.aspx?src=..." />
-
-          <button type="submit">Upload / Save PPT</button>
-        </form>
-        <p id="pptMsg" class="notice"></p>
-        <div id="pptAdminList"></div>
       </article>
 
       <article class="card">

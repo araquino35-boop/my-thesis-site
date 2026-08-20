@@ -5,7 +5,6 @@
     projectEntries: "cmj_project_entries",
     slides: "cmj_slides",
     videos: "cmj_videos",
-    ppts: "cmj_ppts",
     auth: "cmj_logged_in"
   };
 
@@ -99,8 +98,7 @@
     },
     videos: [
       { id: uid(), title: "Company Introduction", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }
-    ],
-    ppts: []
+    ]
   };
 
   const page = document.body.dataset.page || "";
@@ -117,7 +115,6 @@
     if (page === "services") initServices();
     if (page === "projects") initProjects();
     if (page === "videos") initVideos();
-    if (page === "ppt") initPptReader();
     if (page === "login") initLogin();
     if (page === "admin") initAdmin();
   });
@@ -144,7 +141,9 @@
   function write(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
     if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
-      firebase.database().ref(key).set(value).catch(() => {});
+      firebase.database().ref(key).set(value).catch((err) => {
+        console.error('[CMJ Firebase] write failed for', key, ':', err.message);
+      });
     }
   }
 
@@ -160,7 +159,6 @@
         [KEYS.projectEntries, defaults.projectEntries],
         [KEYS.slides,         defaults.slides],
         [KEYS.videos,         defaults.videos],
-        [KEYS.ppts,           defaults.ppts],
       ];
       pairs.forEach(([key, val]) => {
         db.ref(key).once('value', (snap) => {
@@ -179,7 +177,6 @@
       if (!localStorage.getItem(KEYS.projectEntries)) write(KEYS.projectEntries, defaults.projectEntries);
       if (!localStorage.getItem(KEYS.slides))         write(KEYS.slides,         defaults.slides);
       if (!localStorage.getItem(KEYS.videos))         write(KEYS.videos,         defaults.videos);
-      if (!localStorage.getItem(KEYS.ppts))           write(KEYS.ppts,           defaults.ppts);
     }
   }
 
@@ -323,7 +320,7 @@
         const entries = snap.val();
         localStorage.setItem(KEYS.projectEntries, JSON.stringify(entries));
         renderProjects(entries);
-      });
+      }, (err) => console.error('[CMJ Firebase] projectEntries:', err.message));
     }
   }
 
@@ -363,7 +360,7 @@
         const fbProducts = snap.val();
         localStorage.setItem(KEYS.products, JSON.stringify(fbProducts));
         renderProducts(fbProducts);
-      });
+      }, (err) => console.error('[CMJ Firebase] products:', err.message));
     }
   }
 
@@ -394,7 +391,7 @@
         const fbServices = snap.val();
         localStorage.setItem(KEYS.services, JSON.stringify(fbServices));
         renderServices(fbServices);
-      });
+      }, (err) => console.error('[CMJ Firebase] services:', err.message));
     }
   }
 
@@ -437,98 +434,8 @@
         const fbVideos = snap.val();
         localStorage.setItem(KEYS.videos, JSON.stringify(fbVideos));
         renderVideos(fbVideos);
-      });
+      }, (err) => console.error('[CMJ Firebase] videos:', err.message));
     }
-  }
-
-  function initPptReader() {
-    const list = document.getElementById('pptList');
-    const frame = document.getElementById('pptFrame');
-    const hint = document.getElementById('pptHint');
-    const downloadLink = document.getElementById('pptDownloadLink');
-    if (!list || !frame || !hint || !downloadLink) return;
-
-    let activeObjectUrl = '';
-    const clearObjectUrl = () => {
-      if (activeObjectUrl) {
-        URL.revokeObjectURL(activeObjectUrl);
-        activeObjectUrl = '';
-      }
-    };
-
-    const renderPpts = (ppts) => {
-      if (!ppts.length) {
-        list.innerHTML = "<p class='notice'>No PowerPoint uploaded yet. Admin can upload from maintenance panel.</p>";
-        frame.src = 'about:blank';
-        hint.textContent = '';
-        downloadLink.classList.add('hidden');
-        return;
-      }
-
-      list.innerHTML = ppts
-        .map((p, idx) => `<button type='button' data-ppt='${p.id}' class='outline'>${escapeHtml(p.name || `Presentation ${idx + 1}`)}</button>`)
-        .join(' ');
-
-      const show = async (ppt) => {
-        clearObjectUrl();
-        downloadLink.classList.add('hidden');
-        downloadLink.removeAttribute('href');
-        downloadLink.removeAttribute('download');
-
-        try {
-          if (ppt.publicUrl) {
-            frame.src = getPptEmbedSrc(ppt);
-            hint.textContent = 'Viewing via Office online embed.';
-            return;
-          }
-
-          if (ppt.hasFile) {
-            const file = await getStoredPptFile(ppt.id);
-            if (file) {
-              activeObjectUrl = URL.createObjectURL(file);
-              frame.src = activeObjectUrl;
-              downloadLink.href = activeObjectUrl;
-              downloadLink.download = ppt.fileName || ppt.name || 'presentation.pptx';
-              downloadLink.classList.remove('hidden');
-              hint.textContent = 'Local presentation loaded from browser storage. If inline preview does not display, use the link below to open or download it.';
-              return;
-            }
-          }
-
-          if (ppt.dataUrl) {
-            frame.src = ppt.dataUrl;
-            hint.textContent = 'Viewing legacy locally stored presentation data. If preview does not display, re-upload the file or use a public URL.';
-            return;
-          }
-
-          frame.src = 'about:blank';
-          hint.textContent = 'Presentation file not found. Re-upload the PPT/PPTX file from Admin or provide a public URL.';
-        } catch (error) {
-          frame.src = 'about:blank';
-          hint.textContent = `Unable to load presentation: ${error.message}`;
-        }
-      };
-
-      show(ppts[0]);
-      list.querySelectorAll('[data-ppt]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const found = ppts.find((x) => x.id === btn.dataset.ppt);
-          if (found) show(found);
-        });
-      });
-    };
-
-    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
-      firebase.database().ref(KEYS.ppts).once('value', (snap) => {
-        const fbPpts = snap.exists() ? snap.val() : read(KEYS.ppts, defaults.ppts);
-        localStorage.setItem(KEYS.ppts, JSON.stringify(fbPpts));
-        renderPpts(fbPpts);
-      });
-    } else {
-      renderPpts(read(KEYS.ppts, defaults.ppts));
-    }
-
-    window.addEventListener('beforeunload', clearObjectUrl, { once: true });
   }
 
   function initLogin() {
@@ -591,7 +498,6 @@
     initProjectEntryAdmin();
     initSlideshowAdmin();
     initVideoAdmin();
-    initPptAdmin();
   }
 
   function initProductAdmin() {
@@ -634,20 +540,21 @@
           form.name.value = found.name;
           form.description.value = found.description;
           form.specs.value = found.specs;
-          msg.textContent = "Editing product. Upload image only if you want to replace it.";
+          form.imageUrl.value = found.image || "";
+          msg.textContent = "Editing product. Update image URL only if you want to replace it.";
         });
       });
     };
 
-    form.addEventListener("submit", async (e) => {
+    form.addEventListener("submit", (e) => {
       e.preventDefault();
+
       const items = read(KEYS.products, defaults.products);
       const id = form.productId.value.trim();
-      const file = form.image.files[0] || null;
-      const imageData = file ? await fileToDataUrl(file) : null;
+      const imageUrl = (form.imageUrl.value || "").trim();
 
-      if (!id && !imageData) {
-        msg.textContent = "Image is required for new product.";
+      if (!id && !imageUrl) {
+        msg.textContent = "Image URL is required for new product.";
         return;
       }
 
@@ -659,7 +566,7 @@
             name: form.name.value.trim(),
             description: form.description.value.trim(),
             specs: form.specs.value.trim(),
-            image: imageData || items[idx].image
+            image: imageUrl || items[idx].image
           };
           msg.textContent = "Product updated.";
         }
@@ -669,7 +576,7 @@
           name: form.name.value.trim(),
           description: form.description.value.trim(),
           specs: form.specs.value.trim(),
-          image: imageData
+          image: imageUrl
         });
         msg.textContent = "Product added.";
       }
@@ -817,7 +724,7 @@
       });
     };
 
-    form.addEventListener("submit", (e) => {
+form.addEventListener("submit", (e) => {
       e.preventDefault();
       const current = read(KEYS.projectEntries, defaults.projectEntries);
       const id = form.projectEntryId.value.trim();
@@ -869,12 +776,12 @@
       list.innerHTML = items
         .map(
           (s) => `
-         
+
               <strong>${escapeHtml(s.caption || "No caption")}</strong>
               <p class='notice'>Section: ${escapeHtml(type)}</p>
             </div>
             <div class='action-row'>
-              <button type='button' class='outline' data-replace='${s.id}'>Replace</button>
+              <button type='button' class='outline' data-replace='${s.id}'>Replace URL</button>
               <button type='button' class='danger' data-delete='${s.id}'>Delete</button>
             </div>
           </div>`
@@ -892,48 +799,54 @@
       });
 
       list.querySelectorAll("[data-replace]").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const picker = document.createElement("input");
-          picker.type = "file";
-          picker.accept = "image/*";
-          picker.onchange = async () => {
-            const file = picker.files[0];
-            if (!file) return;
-            const current = read(KEYS.slides, defaults.slides);
-            const idx = (current[type] || []).findIndex((x) => x.id === btn.dataset.replace);
-            if (idx < 0) return;
-            current[type][idx].src = await fileToDataUrl(file);
-            current[type][idx].caption = current[type][idx].caption || file.name;
-            write(KEYS.slides, current);
-            render();
-            msg.textContent = "Slide replaced.";
-          };
-          picker.click();
+        btn.addEventListener("click", () => {
+          const current = read(KEYS.slides, defaults.slides);
+          const idx = (current[type] || []).findIndex((x) => x.id === btn.dataset.replace);
+          if (idx < 0) return;
+
+          const nextUrl = window.prompt("Enter new image URL:", current[type][idx].src || "");
+          if (!nextUrl) return;
+
+          current[type][idx].src = nextUrl.trim();
+          write(KEYS.slides, current);
+          render();
+          msg.textContent = "Slide URL replaced.";
         });
       });
     };
 
     form.slideType.addEventListener("change", render);
 
-    form.addEventListener("submit", async (e) => {
+    form.addEventListener("submit", (e) => {
       e.preventDefault();
       const section = form.slideType.value;
       const caption = form.slideCaption.value.trim() || "New slideshow image";
-      const files = Array.from(form.slideImages.files || []);
-      if (!files.length) {
-        msg.textContent = "Please choose at least one image.";
+      const raw = (form.slideImageUrls.value || "").trim();
+      const urls = raw
+        .split(/\r?\n|,/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+
+      if (!urls.length) {
+        msg.textContent = "Please enter at least one image URL.";
         return;
       }
 
-      const images = await Promise.all(files.map((f) => fileToDataUrl(f)));
       const current = read(KEYS.slides, defaults.slides);
       if (!current[section]) current[section] = [];
-      images.forEach((src, i) => current[section].push({ id: uid(), src, caption: files.length === 1 ? caption : `${caption} ${i + 1}` }));
+      urls.forEach((src, i) => {
+        current[section].push({
+          id: uid(),
+          src,
+          caption: urls.length === 1 ? caption : `${caption} ${i + 1}`
+        });
+      });
+
       write(KEYS.slides, current);
       form.reset();
       form.slideType.value = section;
       render();
-      msg.textContent = "Slideshow images uploaded.";
+      msg.textContent = "Slideshow URL(s) added.";
     });
 
     render();
@@ -1016,95 +929,6 @@
     render();
   }
 
-  function initPptAdmin() {
-    const form = document.getElementById("pptForm");
-    const list = document.getElementById("pptAdminList");
-    const msg = document.getElementById("pptMsg");
-    if (!form || !list || !msg) return;
-
-    const render = () => {
-      const ppts = read(KEYS.ppts, defaults.ppts);
-      if (!ppts.length) {
-        list.innerHTML = "<p class='notice'>No PowerPoint uploaded yet.</p>";
-        return;
-      }
-
-      list.innerHTML = ppts
-        .map(
-          (p) => `
-          <div class='list-item'>
-            <img src='${placeholder("PPT", "#b91c1c")}' alt='${escapeHtml(p.name)}' />
-            <div>
-              <strong>${escapeHtml(p.name)}</strong>
-              <p class='notice'>${p.publicUrl ? escapeHtml(p.publicUrl) : p.hasFile ? escapeHtml(p.fileName || "Local uploaded file") : "No file source"}</p>
-            </div>
-            <div class='action-row'>
-              <button type='button' class='danger' data-delete='${p.id}'>Delete</button>
-            </div>
-          </div>`
-        )
-        .join("");
-
-      list.querySelectorAll("[data-delete]").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const current = read(KEYS.ppts, defaults.ppts).filter((p) => p.id !== btn.dataset.delete);
-          try {
-            await deleteStoredPptFile(btn.dataset.delete);
-          } catch {
-          }
-          write(KEYS.ppts, current);
-          render();
-          msg.textContent = "PPT deleted.";
-        });
-      });
-    };
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const ppts = read(KEYS.ppts, defaults.ppts);
-      const file = form.pptFile.files[0] || null;
-      const publicUrl = form.publicUrl.value.trim();
-
-      if (!file && !publicUrl) {
-        msg.textContent = "Upload a PPT file and/or provide a public URL.";
-        return;
-      }
-
-      const id = uid();
-      let name = form.title.value.trim();
-      let hasFile = false;
-      let fileName = "";
-
-      try {
-        if (file) {
-          await saveStoredPptFile(id, file);
-          hasFile = true;
-          fileName = file.name;
-          if (!name) name = file.name;
-        }
-
-        if (!name && publicUrl) name = "Office Embed PPT";
-
-        ppts.push({
-          id,
-          name,
-          publicUrl,
-          hasFile,
-          fileName
-        });
-
-        write(KEYS.ppts, ppts);
-        form.reset();
-        render();
-        msg.textContent = "PPT uploaded.";
-      } catch (error) {
-        msg.textContent = `PPT upload failed: ${error.message}`;
-      }
-    });
-
-    render();
-  }
-
   function toYoutubeEmbed(url) {
     const id = getYoutubeVideoId(url);
     if (!id) return url;
@@ -1139,89 +963,6 @@
     } catch {
       return "";
     }
-  }
-
-  function getPptEmbedSrc(ppt) {
-    if (ppt.publicUrl) {
-      return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(ppt.publicUrl)}`;
-    }
-    return ppt.dataUrl || "about:blank";
-  }
-
-  function openPortalDb() {
-    return new Promise((resolve, reject) => {
-      if (!window.indexedDB) {
-        reject(new Error("This browser does not support local presentation storage."));
-        return;
-      }
-
-      const request = window.indexedDB.open("cmj_portal_storage", 1);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains("ppts")) {
-          db.createObjectStore("ppts", { keyPath: "id" });
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error("Failed to open browser storage."));
-    });
-  }
-
-  async function saveStoredPptFile(id, file) {
-    const db = await openPortalDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("ppts", "readwrite");
-      tx.objectStore("ppts").put({ id, file });
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error || new Error("Failed to save presentation file."));
-      };
-    });
-  }
-
-  async function getStoredPptFile(id) {
-    const db = await openPortalDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("ppts", "readonly");
-      const request = tx.objectStore("ppts").get(id);
-      request.onsuccess = () => {
-        db.close();
-        resolve(request.result ? request.result.file : null);
-      };
-      request.onerror = () => {
-        db.close();
-        reject(request.error || new Error("Failed to read presentation file."));
-      };
-    });
-  }
-
-  async function deleteStoredPptFile(id) {
-    const db = await openPortalDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("ppts", "readwrite");
-      tx.objectStore("ppts").delete(id);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error || new Error("Failed to delete presentation file."));
-      };
-    });
-  }
-
-  function fileToDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error("Failed to load file."));
-      reader.readAsDataURL(file);
-    });
   }
 
   function escapeHtml(value) {
